@@ -232,8 +232,8 @@ export class ChatwootService {
         '123456',
         inboxId,
         false,
-        'EvolutionAPI',
-        'https://evolution-api.com/files/evolution-api-favicon.png',
+        'Salesfeed',
+        'https://salesfeed.nyc3.digitaloceanspaces.com/salesfeed-avatar.png',
       )) as any);
 
     if (!contact) {
