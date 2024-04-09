@@ -269,18 +269,27 @@ export class TypebotService {
   }
 
   private getTypeMessage(msg: any) {
-    this.logger.verbose('get type message');
+      this.logger.verbose('get type message');
+      const types = {
+        conversation: msg.conversation,
+        extendedTextMessage: msg.extendedTextMessage?.text,
+        audioMessage: msg.audioMessage?.url,
+        imageMessage: msg.imageMessage?.url,
+        videoMessage: msg.videoMessage?.url,
+        documentMessage: msg.documentMessage?.fileName,
+        contactMessage: msg.contactMessage?.displayName,
+        locationMessage: msg.locationMessage?.degreesLatitude,
+        viewOnceMessageV2: msg.viewOnceMessageV2?.message?.imageMessage?.url || msg.viewOnceMessageV2?.message?.videoMessage?.url || msg.viewOnceMessageV2?.message?.audioMessage?.url,
+        listResponseMessage: msg.listResponseMessage?.singleSelectReply?.selectedRowId,
+        responseRowId: msg.listResponseMessage?.singleSelectReply?.selectedRowId,
+      };
 
-    const types = {
-      conversation: msg.conversation,
-      extendedTextMessage: msg.extendedTextMessage?.text,
-    };
-
-    this.logger.verbose('type message: ' + types);
-
-    return types;
+      const messageType = Object.keys(types).find(key => types[key] !== undefined) || 'unknown';
+    
+      this.logger.verbose('Type message: ' + JSON.stringify(types));
+      return { ...types, messageType };
   }
-
+  
   private getMessageContent(types: any) {
     this.logger.verbose('get message content');
     const typeKey = Object.keys(types).find((key) => types[key] !== undefined);
@@ -304,6 +313,101 @@ export class TypebotService {
     return messageContent;
   }
 
+  private getAudioMessageContent(msg: any) {
+    this.logger.verbose('get audio message content');
+
+    const types = this.getTypeMessage(msg);
+    
+    const audioContent = types.audioMessage;
+
+    this.logger.verbose('audio message URL: ' + audioContent);
+
+    return audioContent;
+  }
+
+  private getImageMessageContent(msg: any) {
+    this.logger.verbose('get image message content');
+  
+    const types = this.getTypeMessage(msg);
+    
+    const imageContent = types.imageMessage;
+  
+    this.logger.verbose('image message URL: ' + imageContent);
+  
+    return imageContent;
+  }
+  
+  private getVideoMessageContent(msg: any) {
+    this.logger.verbose('get video message content');
+  
+    const types = this.getTypeMessage(msg);
+  
+    const videoContent = types.videoMessage;
+  
+    this.logger.verbose('video message URL: ' + videoContent);
+  
+    return videoContent;
+  }
+  
+  private getDocumentMessageContent(msg: any) {
+    this.logger.verbose('get document message content');
+  
+    const types = this.getTypeMessage(msg);
+  
+    const documentContent = types.documentMessage;
+  
+    this.logger.verbose('document message fileName: ' + documentContent);
+  
+    return documentContent;
+  }
+
+  private getContactMessageContent(msg: any) {
+    this.logger.verbose('get contact message content');
+  
+    const types = this.getTypeMessage(msg);
+  
+    const contactContent = types.contactMessage;
+  
+    this.logger.verbose('contact message displayName: ' + contactContent);
+  
+    return contactContent;
+  }
+
+  private getLocationMessageContent(msg: any) {
+    this.logger.verbose('get location message content');
+  
+    const types = this.getTypeMessage(msg);
+  
+    const locationContent = types.locationMessage;
+  
+    this.logger.verbose('location message degreesLatitude: ' + locationContent);
+  
+    return locationContent;
+  }
+
+  private getViewOnceMessageV2Content(msg: any) {
+    this.logger.verbose('get viewOnceMessageV2 content');
+  
+    const types = this.getTypeMessage(msg);
+  
+    const viewOnceContent = types.viewOnceMessageV2;
+  
+    this.logger.verbose('viewOnceMessageV2 URL: ' + viewOnceContent);
+  
+    return viewOnceContent;
+  }
+
+  private getListResponseMessageContent(msg: any) {
+    this.logger.verbose('get listResponseMessage content');
+  
+    const types = this.getTypeMessage(msg);
+  
+    const listResponseContent = types.listResponseMessage || types.responseRowId;
+  
+    this.logger.verbose('listResponseMessage selectedRowId: ' + listResponseContent);
+  
+    return listResponseContent;
+  }
   public async createNewSession(instance: InstanceDto, data: any) {
     if (data.remoteJid === 'status@broadcast') return;
     const id = Math.floor(Math.random() * 10000000000).toString();
@@ -389,6 +493,7 @@ export class TypebotService {
       input,
       clientSideActions,
       this.eventEmitter,
+      applyFormatting,
     ).catch((err) => {
       console.error('Erro ao processar mensagens:', err);
     });
@@ -404,72 +509,67 @@ export class TypebotService {
       return null;
     }
 
-    async function processMessages(instance, messages, input, clientSideActions, eventEmitter) {
-      for (const message of messages) {
-        const wait = findItemAndGetSecondsToWait(clientSideActions, message.id);
+    function applyFormatting(element) {
+      let text = '';
 
+      if (element.text) {
+        text += element.text;
+      }
+
+      if (
+        element.children &&
+        (element.type === 'p' ||
+          element.type === 'a' ||
+          element.type === 'inline-variable' ||
+          element.type === 'variable')
+      ) {
+        for (const child of element.children) {
+          text += applyFormatting(child);
+        }
+      }
+
+      let formats = '';
+
+      if (element.bold) {
+        formats += '*';
+      }
+
+      if (element.italic) {
+        formats += '_';
+      }
+
+      if (element.underline) {
+        formats += '~';
+      }
+
+      let formattedText = `${formats}${text}${formats.split('').reverse().join('')}`;
+
+      if (element.url) {
+        formattedText = element.children[0]?.text ? `[${formattedText}]\n(${element.url})` : `${element.url}`;
+      }
+
+      return formattedText;
+    }
+
+    async function processMessages(instance, messages, input, clientSideActions, eventEmitter, applyFormatting) {
+      for (const message of messages) {
         if (message.type === 'text') {
           let formattedText = '';
 
-          let linkPreview = false;
-
           for (const richText of message.content.richText) {
-            if (richText.type === 'variable') {
-              for (const child of richText.children) {
-                for (const grandChild of child.children) {
-                  formattedText += grandChild.text;
-                }
-              }
-            } else {
-              for (const element of richText.children) {
-                let text = '';
-
-                if (element.type === 'inline-variable') {
-                  for (const child of element.children) {
-                    for (const grandChild of child.children) {
-                      text += grandChild.text;
-                    }
-                  }
-                } else if (element.text) {
-                  text = element.text;
-                }
-
-                // if (element.text) {
-                //   text = element.text;
-                // }
-
-                if (element.bold) {
-                  text = `*${text}*`;
-                }
-
-                if (element.italic) {
-                  text = `_${text}_`;
-                }
-
-                if (element.underline) {
-                  text = `*${text}*`;
-                }
-
-                if (element.url) {
-                  const linkText = element.children[0].text;
-                  text = `[${linkText}](${element.url})`;
-                  linkPreview = true;
-                }
-
-                formattedText += text;
-              }
+            for (const element of richText.children) {
+              formattedText += applyFormatting(element);
             }
             formattedText += '\n';
           }
 
-          formattedText = formattedText.replace(/\n$/, '');
+          formattedText = formattedText.replace(/\*\*/g, '').replace(/__/, '').replace(/~~/, '').replace(/\n$/, '');
 
           await instance.textMessage({
             number: remoteJid.split('@')[0],
             options: {
-              delay: wait ? wait * 1000 : instance.localTypebot.delay_message || 1000,
+              delay: instance.localTypebot.delay_message || 1000,
               presence: 'composing',
-              linkPreview: linkPreview,
             },
             textMessage: {
               text: formattedText,
@@ -481,7 +581,7 @@ export class TypebotService {
           await instance.mediaMessage({
             number: remoteJid.split('@')[0],
             options: {
-              delay: wait ? wait * 1000 : instance.localTypebot.delay_message || 1000,
+              delay: instance.localTypebot.delay_message || 1000,
               presence: 'composing',
             },
             mediaMessage: {
@@ -495,7 +595,7 @@ export class TypebotService {
           await instance.mediaMessage({
             number: remoteJid.split('@')[0],
             options: {
-              delay: wait ? wait * 1000 : instance.localTypebot.delay_message || 1000,
+              delay: instance.localTypebot.delay_message || 1000,
               presence: 'composing',
             },
             mediaMessage: {
@@ -509,7 +609,7 @@ export class TypebotService {
           await instance.audioWhatsapp({
             number: remoteJid.split('@')[0],
             options: {
-              delay: wait ? wait * 1000 : instance.localTypebot.delay_message || 1000,
+              delay: instance.localTypebot.delay_message || 1000,
               presence: 'recording',
               encoding: true,
             },
@@ -517,6 +617,12 @@ export class TypebotService {
               audio: message.content.url,
             },
           });
+        }
+
+        const wait = findItemAndGetSecondsToWait(clientSideActions, message.id);
+
+        if (wait) {
+          await new Promise((resolve) => setTimeout(resolve, wait * 1000));
         }
       }
 
@@ -535,9 +641,8 @@ export class TypebotService {
           await instance.textMessage({
             number: remoteJid.split('@')[0],
             options: {
-              delay: 1200,
+              delay: instance.localTypebot.delay_message || 1000,
               presence: 'composing',
-              linkPreview: false,
             },
             textMessage: {
               text: formattedText,
@@ -563,6 +668,7 @@ export class TypebotService {
     const delay_message = findTypebot.delay_message;
     const unknown_message = findTypebot.unknown_message;
     const listening_from_me = findTypebot.listening_from_me;
+    const messageType = this.getTypeMessage(msg.message).messageType;
 
     const session = sessions.find((session) => session.remoteJid === remoteJid);
 
@@ -685,6 +791,9 @@ export class TypebotService {
           sessions: sessions,
           remoteJid: remoteJid,
           pushName: msg.pushName,
+          prefilledVariables: { 
+            messageType: messageType,
+          },
         });
 
         await this.sendWAMessage(instance, remoteJid, data.messages, data.input, data.clientSideActions);
@@ -709,7 +818,7 @@ export class TypebotService {
           }
 
           if (keyword_finish && content.toLowerCase() === keyword_finish.toLowerCase()) {
-            sessions.splice(sessions.indexOf(session), 1);
+            const newSessions = await this.clearSessions(instance, remoteJid);
 
             const typebotData = {
               enabled: findTypebot.enabled,
@@ -720,7 +829,7 @@ export class TypebotService {
               delay_message: delay_message,
               unknown_message: unknown_message,
               listening_from_me: listening_from_me,
-              sessions,
+              sessions: newSessions,
             };
 
             this.create(instance, typebotData);
@@ -801,7 +910,7 @@ export class TypebotService {
       }
 
       if (keyword_finish && content.toLowerCase() === keyword_finish.toLowerCase()) {
-        sessions.splice(sessions.indexOf(session), 1);
+        const newSessions = await this.clearSessions(instance, remoteJid);
 
         const typebotData = {
           enabled: findTypebot.enabled,
@@ -812,7 +921,7 @@ export class TypebotService {
           delay_message: delay_message,
           unknown_message: unknown_message,
           listening_from_me: listening_from_me,
-          sessions,
+          sessions: newSessions,
         };
 
         this.create(instance, typebotData);
